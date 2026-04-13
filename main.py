@@ -74,14 +74,27 @@ def musicxml_to_score(xml_string: str) -> dict:
         0: "C", 1: "G", 2: "D", 3: "A", 4: "E", 5: "B", 6: "F#", 7: "C#",
     }
 
-    # Process each part
+    # Check if any part has multiple staves (grand staff piano)
     parts = root.findall(f".//{ns}part")
+    num_parts = len(parts)
+
     for part_idx, part in enumerate(parts):
-        hand = "right" if part_idx == 0 else "left"
-        divisions = 1  # default
+        # Default hand based on part index
+        default_hand = "right" if part_idx == 0 else "left"
+
+        # Check if this part has multiple staves (common for piano)
+        has_multiple_staves = False
+        first_attr = part.find(f".//{ns}attributes/{ns}staves")
+        if first_attr is not None and int(first_attr.text) > 1:
+            has_multiple_staves = True
+
+        divisions = 1
+        # Track beat per staff separately for multi-staff parts
+        staff_beats = {1: 1, 2: 1}
 
         for measure in part.findall(f"{ns}measure"):
             measure_num = int(measure.get("number", 1))
+            staff_beats = {1: 1, 2: 1}
 
             # Check for attributes (time sig, key sig, divisions)
             attributes = measure.find(f"{ns}attributes")
@@ -112,24 +125,30 @@ def musicxml_to_score(xml_string: str) -> dict:
                     score["tempo"] = int(float(sound.get("tempo")))
 
             # Process notes
-            current_beat = 1
             for note_el in measure.findall(f"{ns}note"):
-                # Check if it's a rest
-                is_rest = note_el.find(f"{ns}rest") is not None
+                # Determine hand from <staff> element or part index
+                staff_el = note_el.find(f"{ns}staff")
+                if has_multiple_staves and staff_el is not None:
+                    staff_num = int(staff_el.text)
+                    hand = "right" if staff_num == 1 else "left"
+                elif num_parts > 1:
+                    hand = default_hand
+                else:
+                    hand = default_hand
 
-                # Check if it's a chord (no forward movement)
+                staff_key = 2 if hand == "left" else 1
+                current_beat = staff_beats[staff_key]
+
+                is_rest = note_el.find(f"{ns}rest") is not None
                 is_chord = note_el.find(f"{ns}chord") is not None
 
-                # Get duration type
                 type_el = note_el.find(f"{ns}type")
                 dur_type = type_el.text if type_el is not None else "quarter"
                 tone_dur = DURATION_MAP.get(dur_type, "4n")
 
-                # Check for dot
                 if note_el.find(f"{ns}dot") is not None:
                     tone_dur += "."
 
-                # Get actual duration in divisions for beat tracking
                 duration_el = note_el.find(f"{ns}duration")
                 duration_divs = int(duration_el.text) if duration_el is not None else divisions
 
@@ -142,10 +161,9 @@ def musicxml_to_score(xml_string: str) -> dict:
                         "hand": hand,
                     })
                 else:
-                    # Get pitch
                     pitch_el = note_el.find(f"{ns}pitch")
                     if pitch_el is not None:
-                        step = pitch_el.find(f"{ns}step").text  # C, D, E, etc.
+                        step = pitch_el.find(f"{ns}step").text
                         octave = pitch_el.find(f"{ns}octave").text
                         alter_el = pitch_el.find(f"{ns}alter")
                         alter = int(float(alter_el.text)) if alter_el is not None else 0
@@ -163,10 +181,8 @@ def musicxml_to_score(xml_string: str) -> dict:
                         pitch_name = f"{step}{accidental}{octave}"
 
                         if is_chord and score["notes"]:
-                            # Add to previous note's pitch array
                             score["notes"][-1]["pitch"].append(pitch_name)
                         else:
-                            # Check for staccato
                             articulations = note_el.find(f".//{ns}articulations")
                             staccato = False
                             if articulations is not None:
@@ -184,10 +200,9 @@ def musicxml_to_score(xml_string: str) -> dict:
 
                             score["notes"].append(note_data)
 
-                # Advance beat counter (skip for chord notes)
                 if not is_chord:
                     beat_advance = duration_divs / divisions
-                    current_beat += beat_advance
+                    staff_beats[staff_key] = current_beat + beat_advance
 
     return score
 
