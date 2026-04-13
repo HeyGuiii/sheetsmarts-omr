@@ -192,6 +192,17 @@ def musicxml_to_score(xml_string: str) -> dict:
     return score
 
 
+@app.on_event("startup")
+async def startup_download_models():
+    """Download OMR models on first startup."""
+    from homr.main import download_weights
+    from homr.title_detection import download_ocr_weights
+    print("Downloading OMR models (first time only)...")
+    download_weights(use_gpu_inference=False)
+    download_ocr_weights()
+    print("Models ready!")
+
+
 @app.post("/recognize")
 async def recognize_sheet_music(request: ImageRequest):
     """Accept a base64 image, run homr OMR, return structured JSON."""
