@@ -206,24 +206,35 @@ async def recognize_sheet_music(request: ImageRequest):
             tmp_path = tmp.name
 
         try:
-            # Run homr
-            from homr import download_utils
-            from homr.main import process_image
+            # Run homr with proper config
+            from homr.main import ProcessingConfig, process_image
+            from homr.music_xml_generator import XmlGeneratorArguments
 
-            result_path = process_image(tmp_path)
+            config = ProcessingConfig(
+                enable_debug=False,
+                enable_cache=False,
+                write_staff_positions=False,
+                read_staff_positions=False,
+                selected_staff=-1,
+                use_gpu_inference=False,
+            )
+            xml_args = XmlGeneratorArguments()
 
-            # Read the MusicXML output
-            xml_path = Path(result_path)
-            if not xml_path.exists():
-                # homr typically outputs next to the input file
-                xml_path = Path(tmp_path).with_suffix(".musicxml")
+            process_image(tmp_path, config, xml_args)
+
+            # homr writes output next to the input file with .musicxml extension
+            xml_path = Path(tmp_path).with_suffix(".musicxml")
 
             if not xml_path.exists():
                 # Search for any .musicxml file in the temp dir
                 import glob
-                xml_files = glob.glob(os.path.join(tempfile.gettempdir(), "*.musicxml"))
+                xml_files = sorted(
+                    glob.glob(os.path.join(tempfile.gettempdir(), "*.musicxml")),
+                    key=os.path.getmtime,
+                    reverse=True,
+                )
                 if xml_files:
-                    xml_path = Path(xml_files[-1])
+                    xml_path = Path(xml_files[0])
 
             if not xml_path.exists():
                 raise FileNotFoundError("homr did not produce a MusicXML output")
